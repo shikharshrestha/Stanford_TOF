@@ -14,16 +14,23 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
+#define ddsclock 300000000 //in MHz
+#define timeout 100 //For SPI
+
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef SpiHandle;
 GPIO_InitTypeDef GPIO_InitStruct;
 static unsigned char init1[2] = {0x00,0xF0};
 static unsigned char init2[4] = {0x01,0xD0,0x00,0x00};
+static unsigned char chan[2] = {0x00,0xF0};
 static unsigned char chan0[2] = {0x00,0x10};
-static unsigned char data0[5] = {0x04,0x08,0x88,0x88,0x89};
 static unsigned char chan1[2] = {0x00,0x20};
-static unsigned char data1[5] = {0x04,0x00,0x00,0x00,0x00};
+static unsigned char chan2[2] = {0x00,0x40};
+static unsigned char chan3[2] = {0x00,0x80};
+static unsigned char data[5] = {0x04,0x00,0x00,0x00,0x00};
+static unsigned char data0[5] = {0x04,0x08,0x88,0x88,0x89};
+static unsigned char data1[5] = {0x04,0x08,0x88,0x88,0x89};
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
@@ -33,6 +40,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin);
 HAL_StatusTypeDef HAL_SPI_TransmitNew(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size, uint32_t Timeout);
 void ioupdate(void);
 void resetDDS(void);
+void initDDS(void);
+void setfreqDDS(unsigned char channel,unsigned char freq);
+void getftw(uint32_t freq); //Function to Calculate Frequency Tuning Word
 
 /* Private functions ---------------------------------------------------------*/
 /**
@@ -83,17 +93,17 @@ int main(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 	
-	 /*Configure GPIO pin : PB14 for Master Reset*/
-  GPIO_InitStruct.Pin = GPIO_PIN_14;
+	 /*Configure GPIO pin : PD9 for Master Reset*/
+  GPIO_InitStruct.Pin = GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 	
   /* Set the SPI parameters */
   SpiHandle.Instance               = SPI2;
   
-  SpiHandle.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  SpiHandle.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
   SpiHandle.Init.Direction         = SPI_DIRECTION_1LINE;
   SpiHandle.Init.CLKPhase          = SPI_PHASE_2EDGE;
   SpiHandle.Init.CLKPolarity       = SPI_POLARITY_HIGH;
@@ -105,28 +115,13 @@ int main(void)
   SpiHandle.Init.TIMode            = SPI_TIMODE_DISABLE;
 	SpiHandle.Init.Mode 						 = SPI_MODE_MASTER;
   
-	HAL_SPI_Init(&SpiHandle);
-	HAL_GPIO_WritePin(GPIOD,GPIO_PIN_8,GPIO_PIN_SET); //Pulling Up Slave Select
-	HAL_Delay(100);
-	resetDDS();
-	
-	HAL_Delay(100);
-	HAL_SPI_TransmitNew(&SpiHandle,init1,2,1000);
-	ioupdate();
-	HAL_Delay(10);
-	HAL_SPI_TransmitNew(&SpiHandle,init2,4,1000);
-	ioupdate();
-	HAL_Delay(10);
-	HAL_SPI_TransmitNew(&SpiHandle,chan0,2,1000);
-	HAL_SPI_TransmitNew(&SpiHandle,data0,5,1000);
-	ioupdate();
-	HAL_Delay(10);
-	HAL_SPI_TransmitNew(&SpiHandle,chan1,2,1000);
-	HAL_SPI_TransmitNew(&SpiHandle,data1,5,1000);
-	ioupdate();
-	HAL_Delay(10);
-	printf("\nMessages Sent");
+	//Initialize DDS for Host-Control
+	initDDS();
+	printf("\nDDS Initialized for Host-Control.");
 	BSP_LED_On(LED3);
+	setfreqDDS(0,0);
+	setfreqDDS(1,1);
+	
 	
 	/* Infinite loop */
   while (1)
@@ -143,12 +138,71 @@ void ioupdate(void){
 }
 
 void resetDDS(void){
-   HAL_GPIO_WritePin(GPIOB,GPIO_PIN_14,GPIO_PIN_SET);
+   HAL_GPIO_WritePin(GPIOD,GPIO_PIN_9,GPIO_PIN_SET);
 	 //Need a pulse atleast .266us wide
 	 HAL_Delay(5);
-	 HAL_GPIO_WritePin(GPIOB,GPIO_PIN_14,GPIO_PIN_RESET);
+	 HAL_GPIO_WritePin(GPIOD,GPIO_PIN_9,GPIO_PIN_RESET);
 	 return;
 }
+
+void initDDS(void){
+	HAL_SPI_Init(&SpiHandle);
+	HAL_GPIO_WritePin(GPIOD,GPIO_PIN_8,GPIO_PIN_SET); //Pulling Up Slave Select
+	HAL_Delay(10);
+	resetDDS();
+	HAL_Delay(10);
+	ioupdate();
+	HAL_Delay(10);
+	HAL_SPI_TransmitNew(&SpiHandle,init1,2,timeout);
+	ioupdate();
+	HAL_Delay(10);
+	HAL_SPI_TransmitNew(&SpiHandle,init2,4,timeout);
+	ioupdate();
+
+}
+
+void setfreqDDS(unsigned char channel,unsigned char freq){
+	
+	switch (channel){
+		case 0:
+		HAL_SPI_TransmitNew(&SpiHandle,chan0,2,timeout);
+    break;
+    case 1:
+		HAL_SPI_TransmitNew(&SpiHandle,chan1,2,timeout);
+    break;
+		case 2:
+		HAL_SPI_TransmitNew(&SpiHandle,chan2,2,timeout);
+    break;
+		case 3:
+		HAL_SPI_TransmitNew(&SpiHandle,chan3,2,timeout);
+    break;
+	  default:
+   	HAL_SPI_TransmitNew(&SpiHandle,chan,2,timeout);
+		break;
+	  }
+	
+	switch (freq){
+		case 0:
+		HAL_SPI_TransmitNew(&SpiHandle,data0,5,timeout);
+    break;
+    case 1:
+		HAL_SPI_TransmitNew(&SpiHandle,data1,5,timeout);
+    break;
+		default:
+		HAL_SPI_TransmitNew(&SpiHandle,data,5,timeout);
+    break;
+			
+	}
+
+	ioupdate();
+	
+}
+
+void getftw(uint32_t freq){
+	 //TBD
+	
+}
+
 
 HAL_StatusTypeDef HAL_SPI_TransmitNew(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size, uint32_t Timeout){
    HAL_StatusTypeDef returnvar;
