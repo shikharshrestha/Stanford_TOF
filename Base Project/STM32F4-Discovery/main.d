@@ -65,3 +65,4 @@ stm32f4-discovery\main.o: ..\..\STM32Cube_FW_F4_V1.7.0\Drivers\STM32F4xx_HAL_Dri
 stm32f4-discovery\main.o: ..\..\STM32Cube_FW_F4_V1.7.0\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_ll_usb.h
 stm32f4-discovery\main.o: ..\..\STM32Cube_FW_F4_V1.7.0\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_pcd_ex.h
 stm32f4-discovery\main.o: ..\..\STM32Cube_FW_F4_V1.7.0\Drivers\STM32F4xx_HAL_Driver\Inc\stm32f4xx_hal_hcd.h
+stm32f4-discovery\main.o: ..\..\STM32Cube_FW_F4_V1.7.0\Drivers\BSP\STM32F4-Discovery\stm32f4_discovery.h

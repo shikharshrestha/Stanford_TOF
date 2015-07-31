@@ -10,14 +10,29 @@
 	
  /*Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "stm32f4_discovery.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
+SPI_HandleTypeDef SpiHandle;
+GPIO_InitTypeDef GPIO_InitStruct;
+static unsigned char init1[2] = {0x00,0xF0};
+static unsigned char init2[4] = {0x01,0xD0,0x00,0x00};
+static unsigned char chan0[2] = {0x00,0x10};
+static unsigned char data0[5] = {0x04,0x08,0x88,0x88,0x89};
+static unsigned char chan1[2] = {0x00,0x20};
+static unsigned char data1[5] = {0x04,0x00,0x00,0x00,0x00};
+
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
 static void Error_Handler(void);
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin);
+HAL_StatusTypeDef HAL_SPI_TransmitNew(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size, uint32_t Timeout);
+void ioupdate(void);
+void resetDDS(void);
 
 /* Private functions ---------------------------------------------------------*/
 /**
@@ -27,7 +42,6 @@ static void Error_Handler(void);
   */
 int main(void)
 {
-
   /* STM32F4xx HAL library initialization:
        - Configure the Flash prefetch, Flash preread and Buffer caches
        - Systick timer is configured by default as source of time base, but user 
@@ -45,14 +59,123 @@ int main(void)
 
   /* Add your application code here
      */
-
-
-  /* Infinite loop */
+  printf("\nAll Systems Initialized!");
+	printf("\n...Running Host Application Code...\n");
+	BSP_PB_Init(BUTTON_KEY,BUTTON_MODE_EXTI);
+ /* Configure LED3, LED4, LED5 and LED6 */
+  BSP_LED_Init(LED3);
+  BSP_LED_Init(LED4);
+  BSP_LED_Init(LED5);
+  BSP_LED_Init(LED6);
+	
+	/*Configure GPIO pin : PB11 for I/O Update*/
+	__HAL_RCC_GPIOB_CLK_ENABLE();
+  GPIO_InitStruct.Pin = GPIO_PIN_11;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+	
+ /*Configure GPIO pin : PD8 for Slave Select*/
+  GPIO_InitStruct.Pin = GPIO_PIN_8;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+	
+	 /*Configure GPIO pin : PB14 for Master Reset*/
+  GPIO_InitStruct.Pin = GPIO_PIN_14;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+	
+  /* Set the SPI parameters */
+  SpiHandle.Instance               = SPI2;
+  
+  SpiHandle.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  SpiHandle.Init.Direction         = SPI_DIRECTION_1LINE;
+  SpiHandle.Init.CLKPhase          = SPI_PHASE_2EDGE;
+  SpiHandle.Init.CLKPolarity       = SPI_POLARITY_HIGH;
+  SpiHandle.Init.CRCCalculation    = SPI_CRCCALCULATION_DISABLE;
+  SpiHandle.Init.CRCPolynomial     = 7;
+  SpiHandle.Init.DataSize          = SPI_DATASIZE_8BIT;
+  SpiHandle.Init.FirstBit          = SPI_FIRSTBIT_MSB;
+  SpiHandle.Init.NSS               = SPI_NSS_SOFT;
+  SpiHandle.Init.TIMode            = SPI_TIMODE_DISABLE;
+	SpiHandle.Init.Mode 						 = SPI_MODE_MASTER;
+  
+	HAL_SPI_Init(&SpiHandle);
+	HAL_GPIO_WritePin(GPIOD,GPIO_PIN_8,GPIO_PIN_SET); //Pulling Up Slave Select
+	HAL_Delay(100);
+	resetDDS();
+	
+	HAL_Delay(100);
+	HAL_SPI_TransmitNew(&SpiHandle,init1,2,1000);
+	ioupdate();
+	HAL_Delay(10);
+	HAL_SPI_TransmitNew(&SpiHandle,init2,4,1000);
+	ioupdate();
+	HAL_Delay(10);
+	HAL_SPI_TransmitNew(&SpiHandle,chan0,2,1000);
+	HAL_SPI_TransmitNew(&SpiHandle,data0,5,1000);
+	ioupdate();
+	HAL_Delay(10);
+	HAL_SPI_TransmitNew(&SpiHandle,chan1,2,1000);
+	HAL_SPI_TransmitNew(&SpiHandle,data1,5,1000);
+	ioupdate();
+	HAL_Delay(10);
+	printf("\nMessages Sent");
+	BSP_LED_On(LED3);
+	
+	/* Infinite loop */
   while (1)
   {
-		printf("\nTest");
+		//printf("\n%d",HAL_GetTick());
   }
 }
+
+void ioupdate(void){
+   HAL_GPIO_WritePin(GPIOB,GPIO_PIN_11,GPIO_PIN_SET);
+	 HAL_Delay(1);
+	 HAL_GPIO_WritePin(GPIOB,GPIO_PIN_11,GPIO_PIN_RESET);
+	 return;
+}
+
+void resetDDS(void){
+   HAL_GPIO_WritePin(GPIOB,GPIO_PIN_14,GPIO_PIN_SET);
+	 //Need a pulse atleast .266us wide
+	 HAL_Delay(5);
+	 HAL_GPIO_WritePin(GPIOB,GPIO_PIN_14,GPIO_PIN_RESET);
+	 return;
+}
+
+HAL_StatusTypeDef HAL_SPI_TransmitNew(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size, uint32_t Timeout){
+   HAL_StatusTypeDef returnvar;
+   HAL_GPIO_WritePin(GPIOD,GPIO_PIN_8,GPIO_PIN_RESET);
+	 returnvar = HAL_SPI_Transmit(hspi,pData,Size,Timeout);
+	 HAL_GPIO_WritePin(GPIOD,GPIO_PIN_8,GPIO_PIN_SET);
+	 return returnvar;
+
+}
+
+
+/**
+  * @brief  Interrupt Callbacks
+  * @param  None
+  * @retval None
+  */
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	
+	while (BSP_PB_GetState(BUTTON_KEY) != RESET);
+	BSP_LED_Toggle(LED5);
+	printf("\nButton Press Detected");
+	return;
+}
+
+
+
 
 /**
   * @brief  System Clock Configuration
