@@ -23,14 +23,16 @@ SPI_HandleTypeDef SpiHandle;
 GPIO_InitTypeDef GPIO_InitStruct;
 static unsigned char init1[2] = {0x00,0xF0};
 static unsigned char init2[4] = {0x01,0xD0,0x00,0x00};
+static unsigned char init3[4] = {0x03,0x00,0x03,0x01};
 static unsigned char chan[2] = {0x00,0xF0};
 static unsigned char chan0[2] = {0x00,0x10};
 static unsigned char chan1[2] = {0x00,0x20};
 static unsigned char chan2[2] = {0x00,0x40};
 static unsigned char chan3[2] = {0x00,0x80};
-static unsigned char data[5] = {0x04,0x00,0x00,0x00,0x00};
-static unsigned char data0[5] = {0x04,0x08,0x88,0x88,0x89};
-static unsigned char data1[5] = {0x04,0x08,0x88,0x88,0x89};
+static unsigned char data[5] = {0x04,0x00,0x00,0x00,0x00}; //Use to shutdown channel
+static unsigned char data0[5] = {0x04,0x11,0x11,0x11,0x11}; //20MHz
+static unsigned char data1[5] = {0x04,0x0F,0x5C,0x28,0xF6}; //0xF6
+static unsigned char phase[3] = {0x05,0x00,100};
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
@@ -100,10 +102,21 @@ int main(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 	
+	 /*Configure GPIO pin : PA1 for External Interrupts from ILLUM_EN*/
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+	
+	/* Enable and set External Interrupt to the highest priority */
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+	
+	
   /* Set the SPI parameters */
   SpiHandle.Instance               = SPI2;
   
-  SpiHandle.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
+  SpiHandle.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
   SpiHandle.Init.Direction         = SPI_DIRECTION_1LINE;
   SpiHandle.Init.CLKPhase          = SPI_PHASE_2EDGE;
   SpiHandle.Init.CLKPolarity       = SPI_POLARITY_HIGH;
@@ -119,20 +132,28 @@ int main(void)
 	initDDS();
 	printf("\nDDS Initialized for Host-Control.");
 	BSP_LED_On(LED3);
-	setfreqDDS(0,0);
-	setfreqDDS(1,1);
+	setfreqDDS(0,1);
 	
 	
 	/* Infinite loop */
   while (1)
   {
-		//printf("\n%d",HAL_GetTick());
+		/*
+		for (unsigned char i =0;i<=255;i++){
+			phase[3] = i;
+			printf("\nCurrent Value = %d",i);
+			HAL_Delay(1000);
+		}
+  		//printf("\n%d",HAL_GetTick());
+		*/
   }
+	
 }
 
 void ioupdate(void){
    HAL_GPIO_WritePin(GPIOB,GPIO_PIN_11,GPIO_PIN_SET);
-	 HAL_Delay(1);
+   for(unsigned char i =0;i<10;i++)
+	 ;;
 	 HAL_GPIO_WritePin(GPIOB,GPIO_PIN_11,GPIO_PIN_RESET);
 	 return;
 }
@@ -157,6 +178,9 @@ void initDDS(void){
 	ioupdate();
 	HAL_Delay(10);
 	HAL_SPI_TransmitNew(&SpiHandle,init2,4,timeout);
+	ioupdate();
+	HAL_Delay(10);
+	HAL_SPI_TransmitNew(&SpiHandle,init3,4,timeout);
 	ioupdate();
 
 }
@@ -193,6 +217,8 @@ void setfreqDDS(unsigned char channel,unsigned char freq){
     break;
 			
 	}
+	
+	HAL_SPI_TransmitNew(&SpiHandle,phase,3,timeout);
 
 	ioupdate();
 	
@@ -222,11 +248,36 @@ HAL_StatusTypeDef HAL_SPI_TransmitNew(SPI_HandleTypeDef *hspi, uint8_t *pData, u
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	
+	
+	if (GPIO_Pin==GPIO_PIN_0){
 	while (BSP_PB_GetState(BUTTON_KEY) != RESET);
 	BSP_LED_Toggle(LED5);
 	printf("\nButton Press Detected");
 	return;
+	}
+	
+	if (GPIO_Pin==GPIO_PIN_1){
+	 
+	 if(HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_1)){
+		
+		//printf("rising");
+		BSP_LED_On(LED4);	
+		setfreqDDS(1,1); 
+	  setfreqDDS(0,1);
+	 }
+	 else{
+	
+		//printf("\nfalling");
+		BSP_LED_Off(LED4);	
+		setfreqDDS(1,4); //Should switch off channel by defaulting on the case  
+		setfreqDDS(0,4);
+	 }		 
+		 
+		
+	}
+	
 }
+
 
 
 

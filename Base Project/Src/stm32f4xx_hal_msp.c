@@ -114,6 +114,7 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi)
     __HAL_RCC_SPI2_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
   	__HAL_RCC_GPIOC_CLK_ENABLE();
+		__HAL_RCC_GPIOA_CLK_ENABLE();
 		 	__HAL_RCC_GPIOD_CLK_ENABLE();
     /**SPI2 GPIO Configuration    
     PB13     ------> SPI2_SCK
