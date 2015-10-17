@@ -21,18 +21,26 @@
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef SpiHandle;
 GPIO_InitTypeDef GPIO_InitStruct;
+static unsigned char quadcount = 0;
+static unsigned char click = 0;
 static unsigned char init1[2] = {0x00,0xF0};
 static unsigned char init2[4] = {0x01,0xD0,0x00,0x00};
-static unsigned char init3[4] = {0x03,0x00,0x03,0x01};
+static unsigned char init3[4] = {0x03,0x00,0x03,0x00};  //No Modulation
 static unsigned char chan[2] = {0x00,0xF0};
-static unsigned char chan0[2] = {0x00,0x10};
-static unsigned char chan1[2] = {0x00,0x20};
+static unsigned char chan0[2] = {0x00,0x10}; //Sensor Demodulation
+static unsigned char chan1[2] = {0x00,0x20}; //ILLUM Modulation
 static unsigned char chan2[2] = {0x00,0x40};
 static unsigned char chan3[2] = {0x00,0x80};
-static unsigned char data[5] = {0x04,0x00,0x00,0x00,0x00}; //Use to shutdown channel
-static unsigned char data0[5] = {0x04,0x11,0x11,0x11,0x11}; //20MHz
-static unsigned char data1[5] = {0x04,0x0F,0x5C,0x28,0xF6}; //0xF6
-static unsigned char phase[3] = {0x05,0x00,100};
+static unsigned char data[5] = {0x04,0x00,0x00,0x00,0x00}; //Default
+static unsigned char data0[5] = {0x04,0x00,0x00,0x00,0x00}; //Use to shutdown channel
+static unsigned char data1[5] = {0x04,0x0F,0x5C,0x28,0xF6}; //18MHz 15555555 {0x04,0x0F,0x5C,0x28,0xF6};
+
+
+//static unsigned char idlesetting[5] = {0x0A,0x00,0x00,0x00,0x00}; //Sets 0Hz in Channel Word 2
+static unsigned char phase0[3] = {0x05,0x00,0x00}; //In-Phase
+static unsigned char phase1[3] = {0x05,0x10,0x00}; //90deg-Phase
+static unsigned char phase2[3] = {0x05,0x20,0x00}; //180deg-Phase
+static unsigned char phase3[3] = {0x05,0x30,0x00}; //270deg-Phase
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
@@ -45,6 +53,10 @@ void resetDDS(void);
 void initDDS(void);
 void setfreqDDS(unsigned char channel,unsigned char freq);
 void getftw(uint32_t freq); //Function to Calculate Frequency Tuning Word
+void resetphase(void); //Function to set the channels at 0 Phase
+void incrementphase(void); //Increments phase of sensor demodulation by 90deg
+void modulation_on(void); //Performs all setup to turn on modulation
+void modulation_off(void); //Performs all setup to turn off modulation
 
 /* Private functions ---------------------------------------------------------*/
 /**
@@ -102,16 +114,11 @@ int main(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_HIGH;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 	
-	 /*Configure GPIO pin : PA1 for External Interrupts from ILLUM_EN*/
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
+	 /*Configure GPIO pin : PA2 for External Interrupts from ILLUM_EN*/
+  GPIO_InitStruct.Pin = GPIO_PIN_2;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-	
-	/* Enable and set External Interrupt to the highest priority */
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
-	
 	
   /* Set the SPI parameters */
   SpiHandle.Instance               = SPI2;
@@ -130,9 +137,18 @@ int main(void)
   
 	//Initialize DDS for Host-Control
 	initDDS();
+  resetphase();
+	modulation_off();
+	ioupdate();
 	printf("\nDDS Initialized for Host-Control.");
-	BSP_LED_On(LED3);
-	setfreqDDS(0,1);
+	BSP_LED_On(LED3); //Status
+	printf("\nDDS Channel Setup Complete - Host Ready!");
+	
+	////This Block makes the Host respond to ILLUM_EN
+	/* Enable and set External Interrupt to the highest priority */
+  HAL_NVIC_SetPriority(EXTI2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+	////It should come at the end of all critical initialization
 	
 	
 	/* Infinite loop */
@@ -218,15 +234,66 @@ void setfreqDDS(unsigned char channel,unsigned char freq){
 			
 	}
 	
-	HAL_SPI_TransmitNew(&SpiHandle,phase,3,timeout);
+	//HAL_SPI_TransmitNew(&SpiHandle,idlesetting,5,timeout);
 
-	ioupdate();
 	
+}
+
+
+void resetphase(void){
+
+	  HAL_SPI_TransmitNew(&SpiHandle,chan0,2,timeout);
+		HAL_SPI_TransmitNew(&SpiHandle,phase0,3,timeout);
+	  HAL_SPI_TransmitNew(&SpiHandle,chan1,2,timeout);
+		HAL_SPI_TransmitNew(&SpiHandle,phase0,3,timeout);
+		
+  
+}
+
+
+
+
+void incrementphase(void){
+	if (quadcount ==3)
+		quadcount = 0;
+	else
+		quadcount++;
+	
+	HAL_SPI_TransmitNew(&SpiHandle,chan0,2,timeout);
+	switch (quadcount){
+		case 0:
+			HAL_SPI_TransmitNew(&SpiHandle,phase0,3,timeout);
+		break;
+		case 1:
+			HAL_SPI_TransmitNew(&SpiHandle,phase1,3,timeout);
+		break;
+		case 2:
+			HAL_SPI_TransmitNew(&SpiHandle,phase2,3,timeout);
+		break;
+		case 3:
+			HAL_SPI_TransmitNew(&SpiHandle,phase3,3,timeout);
+		break;
+		default:
+			HAL_SPI_TransmitNew(&SpiHandle,phase0,3,timeout);
+		break;
+	}
+			
+	printf("\nquad = %d",quadcount);
 }
 
 void getftw(uint32_t freq){
 	 //TBD
 	
+}
+
+void modulation_on(void){
+	setfreqDDS(0,1);
+	setfreqDDS(1,1);
+}
+
+void modulation_off(void){
+	setfreqDDS(0,0);
+	setfreqDDS(1,0);
 }
 
 
@@ -251,30 +318,62 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	
 	if (GPIO_Pin==GPIO_PIN_0){
 	while (BSP_PB_GetState(BUTTON_KEY) != RESET);
-	BSP_LED_Toggle(LED5);
+		
+ 	click++;
+		
+	if (click==1){		
+	  ioupdate();		
+    //printf("\nStart at - %d",HAL_GetTick());
+    BSP_LED_On(LED4);	//Turns on ILLUM Modulation signal
+		BSP_LED_On(LED5);  //Turns on Sensor Demodulation signal		 
+		modulation_off(); 
+	}
+	
+	if (click==2){
+	  ioupdate();
+    //printf("\nStop at - %d",HAL_GetTick());	
+		BSP_LED_Off(LED4);	 //Turns off ILLUM Modulation signal
+		BSP_LED_Off(LED5);  //Turns off Sensor Demodulation signal
+	  modulation_on();
+		incrementphase();	 //Stepping Phase for next exposure		 
+	 
+  	click=0;
+	}
+		
 	printf("\nButton Press Detected");
 	return;
 	}
 	
-	if (GPIO_Pin==GPIO_PIN_1){
+	
+	if (GPIO_Pin==GPIO_PIN_2){
 	 
-	 if(HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_1)){
+	 if(HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_2)){
 		
-		//printf("rising");
-		BSP_LED_On(LED4);	
-		setfreqDDS(1,1); 
-	  setfreqDDS(0,1);
+   
+    //printf("\nStart at - %d",HAL_GetTick());
+    	 	 
+		modulation_on(); 
+	  BSP_LED_On(LED4);	//Turns on ILLUM Modulation signal
+		BSP_LED_On(LED5);  //Turns on Sensor Demodulation signal	
+    ioupdate();	
+
 	 }
 	 else{
-	
-		//printf("\nfalling");
-		BSP_LED_Off(LED4);	
-		setfreqDDS(1,4); //Should switch off channel by defaulting on the case  
-		setfreqDDS(0,4);
+		
+    //printf("\nStop at - %d",HAL_GetTick());	
+		 
+		modulation_off(); 	
+		ioupdate(); 
+		// printf("\nTest"); //Adding a small delay to wait for modulation to stop
+	  BSP_LED_Off(LED4);	 //Turns off ILLUM Modulation signal
+		BSP_LED_Off(LED5);  //Turns off Sensor Demodulation signal 
+		incrementphase();	 //Stepping Phase for next exposure		 
+	 
 	 }		 
 		 
 		
 	}
+	
 	
 }
 

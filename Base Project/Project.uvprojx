@@ -173,11 +173,11 @@
             <RunIndependent>0</RunIndependent>
             <UpdateFlashBeforeDebugging>1</UpdateFlashBeforeDebugging>
             <Capability>1</Capability>
-            <DriverSelection>4107</DriverSelection>
+            <DriverSelection>4103</DriverSelection>
           </Flash1>
           <bUseTDR>1</bUseTDR>
           <Flash2>STLink\ST-LINKIII-KEIL_SWO.dll</Flash2>
-          <Flash3></Flash3>
+          <Flash3>"" ()</Flash3>
           <Flash4></Flash4>
           <pFcarmOut></pFcarmOut>
           <pFcarmGrp></pFcarmGrp>
@@ -631,11 +631,6 @@
               <FilePath>..\..\STM32Cube_FW_F4_V1.7.0\Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_ltdc.c</FilePath>
             </File>
             <File>
-              <FileName>stm32f4xx_hal_msp_template.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\STM32Cube_FW_F4_V1.7.0\Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_msp_template.c</FilePath>
-            </File>
-            <File>
               <FileName>stm32f4xx_hal_nand.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\STM32Cube_FW_F4_V1.7.0\Drivers\STM32F4xx_HAL_Driver\Src\stm32f4xx_hal_nand.c</FilePath>
@@ -815,6 +810,11 @@
               <FileType>1</FileType>
               <FilePath>.\Src\stm32f4xx_it.c</FilePath>
             </File>
+            <File>
+              <FileName>retarget.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\retarget.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -823,7 +823,7 @@
             <File>
               <FileName>libPDMFilter_CM4_Keil.lib</FileName>
               <FileType>4</FileType>
-              <FilePath>..\..\..\..\Middlewares\ST\STM32_Audio\Addons\PDM\libPDMFilter_CM4_IAR.a</FilePath>
+              <FilePath>..\..\STM32Cube_FW_F4_V1.7.0\Middlewares\ST\STM32_Audio\Addons\PDM\libPDMFilter_CM4_Keil.lib</FilePath>
             </File>
           </Files>
         </Group>
