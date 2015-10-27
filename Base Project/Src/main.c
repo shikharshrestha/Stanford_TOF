@@ -7,10 +7,14 @@
   * @brief   Main program body
   ******************************************************************************
 	**/
+	//Using LED 4 & 5 for Modulation Control
+	//LED 6 for USB
+	//LED 3 for General System Status
 	
  /*Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f4_discovery.h"
+#include "tm_stm32f4_usb_vcp.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
@@ -21,8 +25,11 @@
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef SpiHandle;
 GPIO_InitTypeDef GPIO_InitStruct;
-static unsigned char quadcount = 0;
-static unsigned char click = 0;
+static unsigned char quadcount = 0; //Keeps track of current quad
+static unsigned char click = 0;  //Keeps track of User Button press events (Debugging only)
+static unsigned char PhaseSteppingAuto = 1; //Automatic Phase stepping true if 1
+
+static unsigned char modulation_state = 0; //0 means not modulation
 static unsigned char init1[2] = {0x00,0xF0};
 static unsigned char init2[4] = {0x01,0xD0,0x00,0x00};
 static unsigned char init3[4] = {0x03,0x00,0x03,0x00};  //No Modulation
@@ -31,16 +38,30 @@ static unsigned char chan0[2] = {0x00,0x10}; //Sensor Demodulation
 static unsigned char chan1[2] = {0x00,0x20}; //ILLUM Modulation
 static unsigned char chan2[2] = {0x00,0x40};
 static unsigned char chan3[2] = {0x00,0x80};
-static unsigned char data[5] = {0x04,0x00,0x00,0x00,0x00}; //Default
-static unsigned char data0[5] = {0x04,0x00,0x00,0x00,0x00}; //Use to shutdown channel
+static unsigned char data0[5] = {0x04,0x00,0x00,0x00,0x00}; //Use to shutdown channel - Default
 static unsigned char data1[5] = {0x04,0x0F,0x5C,0x28,0xF6}; //18MHz 15555555 {0x04,0x0F,0x5C,0x28,0xF6};
 
+//Channel-Level Frequency Settings
+static unsigned char fch0[5] = {0x04,0x0F,0x5C,0x28,0xF6};
+static unsigned char fch1[5] = {0x04,0x0F,0x5C,0x28,0xF6};
+static unsigned char fch2[5] = {0x04,0x0F,0x5C,0x28,0xF6};
+static unsigned char fch3[5] = {0x04,0x0F,0x5C,0x28,0xF6};
+
+//Channel-Level Phase Settings
+static unsigned char pch0[3] = {0x05,0x00,0x00};
+static unsigned char pch1[3] = {0x05,0x00,0x00};
+static unsigned char pch2[3] = {0x05,0x00,0x00};
+static unsigned char pch3[3] = {0x05,0x00,0x00};
 
 //static unsigned char idlesetting[5] = {0x0A,0x00,0x00,0x00,0x00}; //Sets 0Hz in Channel Word 2
 static unsigned char phase0[3] = {0x05,0x00,0x00}; //In-Phase
 static unsigned char phase1[3] = {0x05,0x10,0x00}; //90deg-Phase
 static unsigned char phase2[3] = {0x05,0x20,0x00}; //180deg-Phase
 static unsigned char phase3[3] = {0x05,0x30,0x00}; //270deg-Phase
+
+//USB Commands
+static uint8_t cmd[11] = "";
+#define commandsize 11
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
@@ -54,9 +75,11 @@ void initDDS(void);
 void setfreqDDS(unsigned char channel,unsigned char freq);
 void getftw(uint32_t freq); //Function to Calculate Frequency Tuning Word
 void resetphase(void); //Function to set the channels at 0 Phase
+void setphase(void); //Function to set the channels at desired Phase
 void incrementphase(void); //Increments phase of sensor demodulation by 90deg
 void modulation_on(void); //Performs all setup to turn on modulation
 void modulation_off(void); //Performs all setup to turn off modulation
+unsigned char parse_usb(uint8_t *cmd,uint16_t size); //Parses the USB Command and sets frequency/phase values
 
 /* Private functions ---------------------------------------------------------*/
 /**
@@ -65,8 +88,16 @@ void modulation_off(void); //Performs all setup to turn off modulation
   * @retval None
   */
 int main(void)
-{
-  /* STM32F4xx HAL library initialization:
+{ 
+	/*Variable Declarations*/
+	 uint8_t c;
+	 uint16_t size = 0; 
+	 char ACK[7]="ACK\n";
+	 char NACK[7]="NACK\n";
+	 unsigned char status = 0;
+	
+  
+	/* STM32F4xx HAL library initialization:
        - Configure the Flash prefetch, Flash preread and Buffer caches
        - Systick timer is configured by default as source of time base, but user 
              can eventually implement his proper time base source (a general purpose 
@@ -141,8 +172,11 @@ int main(void)
 	modulation_off();
 	ioupdate();
 	printf("\nDDS Initialized for Host-Control.");
-	BSP_LED_On(LED3); //Status
-	printf("\nDDS Channel Setup Complete - Host Ready!");
+	printf("\nDDS Channel Setup Complete");
+	
+	/* Initialize USB VCP */    
+  TM_USB_VCP_Init();
+	printf("\nUSB Communication Setup Complete - Host Ready!"); 
 	
 	////This Block makes the Host respond to ILLUM_EN
 	/* Enable and set External Interrupt to the highest priority */
@@ -154,17 +188,123 @@ int main(void)
 	/* Infinite loop */
   while (1)
   {
-		/*
-		for (unsigned char i =0;i<=255;i++){
-			phase[3] = i;
-			printf("\nCurrent Value = %d",i);
-			HAL_Delay(1000);
-		}
-  		//printf("\n%d",HAL_GetTick());
-		*/
+		 /* USB configured OK, drivers OK */
+        if (TM_USB_VCP_GetStatus() == TM_USB_VCP_CONNECTED) {
+            BSP_LED_On(LED3); //Status - All Good!
+					//Only process USB when modulation not in progress  
+					if (modulation_state==0){
+            /* If something arrived at VCP */
+						if(TM_USB_VCP_Getc(&c)==TM_USB_VCP_DATA_OK){
+             /* Return data back */
+						   if (c=='M'){
+								 printf("\n");
+								 //Take 10 Bytes in after receiving T
+								 size = 0;
+								 while((TM_USB_VCP_Getc(&cmd[size]) == TM_USB_VCP_DATA_OK)&&(size < commandsize))
+								 {
+									 printf("%c",cmd[size]);
+									 size++;
+								 }
+								 printf("%d",size);
+								 status = parse_usb(cmd,size); 
+								 //Block checks is the parsing went correct
+									 if (status==1){
+										 TM_USB_VCP_Puts(ACK); 
+										 BSP_LED_On(LED6);
+									 }
+									 else{
+										TM_USB_VCP_Puts(NACK);										 
+										BSP_LED_Off(LED6);	
+									}									
+               }
+							 else{
+							   BSP_LED_Off(LED6);
+							   TM_USB_VCP_Puts(NACK);	 
+								 
+								 		
+							}
+					}}
+        } else {
+            /* USB not OK */
+             BSP_LED_Off(LED3);
+        }
   }
 	
 }
+
+
+unsigned char parse_usb(uint8_t *cmd,uint16_t size){
+	
+	//Check size of cmd packet
+	if (size!=11)
+		return 0;
+	
+	//Check Delimiters
+	if ((cmd[0]!=0xFF)||(cmd[9]!=0xFF))
+		return 0;
+	
+	//Extract Channel, FTW, PTW and AutoPhase Stepping Command
+	switch (cmd[1]){
+				case 0:
+			  fch0[1] = cmd[2];
+				fch0[2] = cmd[3];
+				fch0[3] = cmd[4];
+				fch0[4] = cmd[5];
+				
+				if (cmd[8]==0){
+					pch0[1] = cmd[6];
+					pch0[2] = cmd[7];
+					setphase();
+				}
+				printf("\nChannel 0");
+				break;
+				case 1:
+			  fch1[1] = cmd[2];
+				fch1[2] = cmd[3];
+				fch1[3] = cmd[4];
+				fch1[4] = cmd[5];
+				if (cmd[8]==0){
+					pch1[1] = cmd[6];
+					pch1[2] = cmd[7];
+					setphase();
+				}
+				printf("\nChannel 1");
+				break;
+				case 2:
+				fch2[1] = cmd[2];
+				fch2[2] = cmd[3];
+				fch2[3] = cmd[4];
+				fch2[4] = cmd[5];
+				if (cmd[8]==0){
+					pch2[1] = cmd[6];
+					pch2[2] = cmd[7];
+					setphase();
+				}
+				printf("\nChannel 2");
+				break;	
+				case 3:
+				fch3[1] = cmd[2];
+				fch3[2] = cmd[3];
+				fch3[3] = cmd[4];
+				fch3[4] = cmd[5];
+				if (cmd[8]==0){
+					pch3[1] = cmd[6];
+					pch3[2] = cmd[7];
+					setphase();
+				}
+				printf("\nChannel 3");
+				break;				
+			}
+	
+	if (cmd[8]==0){
+		PhaseSteppingAuto = 0;
+		printf("\nAuto-Stepping OFF, Phases can be set!");
+	}else
+		PhaseSteppingAuto = 1;
+	
+	return 1;
+}
+
 
 void ioupdate(void){
    HAL_GPIO_WritePin(GPIOB,GPIO_PIN_11,GPIO_PIN_SET);
@@ -198,7 +338,7 @@ void initDDS(void){
 	HAL_Delay(10);
 	HAL_SPI_TransmitNew(&SpiHandle,init3,4,timeout);
 	ioupdate();
-
+  return;
 }
 
 void setfreqDDS(unsigned char channel,unsigned char freq){
@@ -206,36 +346,70 @@ void setfreqDDS(unsigned char channel,unsigned char freq){
 	switch (channel){
 		case 0:
 		HAL_SPI_TransmitNew(&SpiHandle,chan0,2,timeout);
+		switch (freq){
+				case 0:
+				HAL_SPI_TransmitNew(&SpiHandle,data0,5,timeout);
+				break;
+				case 1:
+				HAL_SPI_TransmitNew(&SpiHandle,fch0,5,timeout);
+				break;
+				default:
+				HAL_SPI_TransmitNew(&SpiHandle,data0,5,timeout);
+				break;			
+			}
     break;
+			
     case 1:
 		HAL_SPI_TransmitNew(&SpiHandle,chan1,2,timeout);
+		switch (freq){
+				case 0:
+				HAL_SPI_TransmitNew(&SpiHandle,data0,5,timeout);
+				break;
+				case 1:
+				HAL_SPI_TransmitNew(&SpiHandle,fch1,5,timeout);
+				break;
+				default:
+				HAL_SPI_TransmitNew(&SpiHandle,data0,5,timeout);
+				break;			
+			}
     break;
+			
 		case 2:
 		HAL_SPI_TransmitNew(&SpiHandle,chan2,2,timeout);
+		switch (freq){
+				case 0:
+				HAL_SPI_TransmitNew(&SpiHandle,data0,5,timeout);
+				break;
+				case 1:
+				HAL_SPI_TransmitNew(&SpiHandle,fch2,5,timeout);
+				break;
+				default:
+				HAL_SPI_TransmitNew(&SpiHandle,data0,5,timeout);
+				break;			
+			}
     break;
+			
 		case 3:
 		HAL_SPI_TransmitNew(&SpiHandle,chan3,2,timeout);
+		switch (freq){
+				case 0:
+				HAL_SPI_TransmitNew(&SpiHandle,data0,5,timeout);
+				break;
+				case 1:
+				HAL_SPI_TransmitNew(&SpiHandle,fch3,5,timeout);
+				break;
+				default:
+				HAL_SPI_TransmitNew(&SpiHandle,data0,5,timeout);
+				break;			
+			}
     break;
 	  default:
    	HAL_SPI_TransmitNew(&SpiHandle,chan,2,timeout);
+		HAL_SPI_TransmitNew(&SpiHandle,data0,5,timeout);
 		break;
 	  }
 	
-	switch (freq){
-		case 0:
-		HAL_SPI_TransmitNew(&SpiHandle,data0,5,timeout);
-    break;
-    case 1:
-		HAL_SPI_TransmitNew(&SpiHandle,data1,5,timeout);
-    break;
-		default:
-		HAL_SPI_TransmitNew(&SpiHandle,data,5,timeout);
-    break;
-			
-	}
 	
-	//HAL_SPI_TransmitNew(&SpiHandle,idlesetting,5,timeout);
-
 	
 }
 
@@ -246,6 +420,17 @@ void resetphase(void){
 		HAL_SPI_TransmitNew(&SpiHandle,phase0,3,timeout);
 	  HAL_SPI_TransmitNew(&SpiHandle,chan1,2,timeout);
 		HAL_SPI_TransmitNew(&SpiHandle,phase0,3,timeout);
+		
+  
+}
+
+
+void setphase(void){
+
+	  HAL_SPI_TransmitNew(&SpiHandle,chan0,2,timeout);
+		HAL_SPI_TransmitNew(&SpiHandle,pch0,3,timeout);
+	  HAL_SPI_TransmitNew(&SpiHandle,chan1,2,timeout);
+		HAL_SPI_TransmitNew(&SpiHandle,pch1,3,timeout);
 		
   
 }
@@ -277,7 +462,6 @@ void incrementphase(void){
 			HAL_SPI_TransmitNew(&SpiHandle,phase0,3,timeout);
 		break;
 	}
-			
 	printf("\nquad = %d",quadcount);
 }
 
@@ -287,13 +471,25 @@ void getftw(uint32_t freq){
 }
 
 void modulation_on(void){
+	modulation_state = 1;
 	setfreqDDS(0,1);
 	setfreqDDS(1,1);
+	BSP_LED_On(LED4);	//Turns on ILLUM Modulation signal
+  BSP_LED_On(LED5);  //Turns on Sensor Demodulation signal	
+  ioupdate();	
+	BSP_LED_Off(LED6); //Clears the USB indicator LED
+	return;
+	
 }
 
 void modulation_off(void){
+	modulation_state = 0;
 	setfreqDDS(0,0);
 	setfreqDDS(1,0);
+	BSP_LED_Off(LED4);	 //Turns off ILLUM Modulation signal
+	BSP_LED_Off(LED5);  //Turns off Sensor Demodulation signal 
+	ioupdate(); 
+	return;
 }
 
 
@@ -317,26 +513,19 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	
 	
 	if (GPIO_Pin==GPIO_PIN_0){
-	while (BSP_PB_GetState(BUTTON_KEY) != RESET);
+	while (BSP_PB_GetState(BUTTON_KEY) != RESET)
+	{};
 		
  	click++;
 		
 	if (click==1){		
-	  ioupdate();		
-    //printf("\nStart at - %d",HAL_GetTick());
-    BSP_LED_On(LED4);	//Turns on ILLUM Modulation signal
-		BSP_LED_On(LED5);  //Turns on Sensor Demodulation signal		 
-		modulation_off(); 
+	  modulation_on(); 
 	}
 	
 	if (click==2){
-	  ioupdate();
-    //printf("\nStop at - %d",HAL_GetTick());	
-		BSP_LED_Off(LED4);	 //Turns off ILLUM Modulation signal
-		BSP_LED_Off(LED5);  //Turns off Sensor Demodulation signal
-	  modulation_on();
+	  modulation_off();
+		if (PhaseSteppingAuto==1)
 		incrementphase();	 //Stepping Phase for next exposure		 
-	 
   	click=0;
 	}
 		
@@ -348,30 +537,18 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	if (GPIO_Pin==GPIO_PIN_2){
 	 
 	 if(HAL_GPIO_ReadPin(GPIOA,GPIO_PIN_2)){
-		
-   
-    //printf("\nStart at - %d",HAL_GetTick());
-    	 	 
+		//Rising Edge Detected 	 	 
 		modulation_on(); 
-	  BSP_LED_On(LED4);	//Turns on ILLUM Modulation signal
-		BSP_LED_On(LED5);  //Turns on Sensor Demodulation signal	
-    ioupdate();	
-
+	
 	 }
-	 else{
-		
-    //printf("\nStop at - %d",HAL_GetTick());	
-		 
+	 else{	
+		//Falling Edge Detected
 		modulation_off(); 	
-		ioupdate(); 
-		// printf("\nTest"); //Adding a small delay to wait for modulation to stop
-	  BSP_LED_Off(LED4);	 //Turns off ILLUM Modulation signal
-		BSP_LED_Off(LED5);  //Turns off Sensor Demodulation signal 
-		incrementphase();	 //Stepping Phase for next exposure		 
-	 
-	 }		 
+		if (PhaseSteppingAuto==1)
+		incrementphase();	 //Stepping Phase for next exposure		
+    		 
+	  }		 
 		 
-		
 	}
 	
 	
