@@ -1,4 +1,4 @@
-function SendCMD(mcu,ch,freq,phase,ap)
+Difunction SendCMD(mcu,ch,freq,phase,ap)
 
 ftw = getftw(freq)';
 ptw = getptw(phase)';

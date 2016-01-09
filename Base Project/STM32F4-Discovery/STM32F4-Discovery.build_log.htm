@@ -28,16 +28,14 @@ Project File Date:  10/23/2015
 *** Using Compiler 'V5.05 update 2 (build 169)', folder: 'C:\Keil_v5\ARM\ARMCC\Bin'
 Build target 'STM32F4-Discovery'
 compiling main.c...
-Src\main.c(42): warning:  #177-D: variable "data1" was declared but never referenced
-  static unsigned char data1[5] = {0x04,0x0F,0x5C,0x28,0xF6}; //18MHz 15555555 {0x04,0x0F,0x5C,0x28,0xF6};
-Src\main.c(53): warning:  #550-D: variable "pch2" was set but never used
-  static unsigned char pch2[3] = {0x05,0x00,0x00};
-Src\main.c(54): warning:  #550-D: variable "pch3" was set but never used
-  static unsigned char pch3[3] = {0x05,0x00,0x00};
-Src\main.c: 3 warnings, 0 errors
+Src\main.c(32): warning:  #177-D: variable "click" was declared but never referenced
+  static unsigned char click = 0;  //Keeps track of User Button press events (Debugging only)
+Src\main.c(47): warning:  #177-D: variable "data1" was declared but never referenced
+  static unsigned char data1[5] = {0x04,0x19,0x99,0x99,0x9A}; //30MHz {0x04,0x0F,0x5C,0x28,0xF6} - For 18MHz
+Src\main.c: 2 warnings, 0 errors
 linking...
-Program Size: Code=13580 RO-data=468 RW-data=480 ZI-data=5168  
-"STM32F4-Discovery\STM32F4-Discovery.axf" - 0 Error(s), 3 Warning(s).
+Program Size: Code=16176 RO-data=468 RW-data=488 ZI-data=5288  
+"STM32F4-Discovery\STM32F4-Discovery.axf" - 0 Error(s), 2 Warning(s).
 
 <h2>Software Packages used:</h2>
 
