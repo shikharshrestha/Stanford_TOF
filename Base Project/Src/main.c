@@ -28,11 +28,10 @@ SPI_HandleTypeDef SpiHandle;
 GPIO_InitTypeDef GPIO_InitStruct;
 TIM_HandleTypeDef htim8;
 TIM_HandleTypeDef htim1;
-static unsigned char quadcount = 0; //Keeps track of current quad
+static unsigned char quadcount = 0; //Keeps track of current quad inside the frame
+static unsigned char absquad = 0; //Keeps track of current quad in a two frame pair
+static uint32_t frameid = 0; //Keeps track of current frame
 static unsigned char click = 0;  //Keeps track of User Button press events (Debugging only)
-static unsigned char PhaseSteppingAuto = 1; //Automatic Phase stepping true if 1
-static unsigned char FreqSteppingAuto = 0;//Automatic Frequency stepping to do Doppler [Adhoc, revise code!]
-
 
 static unsigned char modulation_state = 0; //0 means not modulating
 static unsigned char init1[2] = {0x00,0xF0};
@@ -44,34 +43,33 @@ static unsigned char chan1[2] = {0x00,0x20}; //ILLUM Modulation
 static unsigned char chan2[2] = {0x00,0x40};
 static unsigned char chan3[2] = {0x00,0x80};
 static unsigned char data0[5] = {0x04,0x00,0x00,0x00,0x00}; //Use to shutdown channel - Default
-static unsigned char data1[5] = {0x04,0x19,0x99,0x99,0x9A}; //30MHz {0x04,0x0F,0x5C,0x28,0xF6} - For 18MHz
+static unsigned char phase0[3] = {0x05,0x00,0x00}; //Zero phase setting
 
-//Channel-Level Frequency Settings
-static unsigned char fch0[5] = {0x04,0x19,0x99,0x99,0x9A};
-static unsigned char fch1[5] = {0x04,0x19,0x99,0x99,0x9A};
-static unsigned char fch2[5] = {0x04,0x19,0x99,0x99,0x9A};
-static unsigned char fch3[5] = {0x04,0x19,0x99,0x99,0x9A};
+//Channel-Level Frequency Settings [DDS FTW]
+static unsigned char fch0[5] = {0x04,0x19,0x99,0x99,0x9A}; //30 MHz Default
+static unsigned char fch1[5] = {0x04,0x19,0x99,0x99,0x9A}; //30 MHz Default
+static unsigned char fch2[5] = {0x04,0x19,0x99,0x99,0x9A}; //30 MHz Default
+static unsigned char fch3[5] = {0x04,0x19,0x99,0x99,0x9A}; //30 MHz Default
 
-//Channel-Level Phase Settings
+//Channel-Level Phase Settings [DDS PTW]
 static unsigned char pch0[3] = {0x05,0x00,0x00};
 static unsigned char pch1[3] = {0x05,0x00,0x00};
 static unsigned char pch2[3] = {0x05,0x00,0x00};
 static unsigned char pch3[3] = {0x05,0x00,0x00};
 
-//static unsigned char idlesetting[5] = {0x0A,0x00,0x00,0x00,0x00}; //Sets 0Hz in Channel Word 2
-static unsigned char phase0[3] = {0x05,0x00,0x00}; //In-Phase
-static unsigned char phase1[3] = {0x05,0x10,0x00}; //90deg-Phase
-static unsigned char phase2[3] = {0x05,0x20,0x00}; //180deg-Phase
-static unsigned char phase3[3] = {0x05,0x30,0x00}; //270deg-Phase
-
-//Doppler freq stepping variables
-static unsigned char fhom[5] = {0x04,0x0F,0x5C,0x28,0xF6};
-static unsigned char fhet[5] = {0x04,0x0F,0x5C,0x3E,0x7E};
-
+//8 Quad Modulation Settings Default for 2 Camera Depth
+static unsigned char f0[32] = {0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A};
+static unsigned char f1[32] = {0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A};	
+static unsigned char f2[32] = {0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A};
+static unsigned char f3[32] = {0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A,0x19,0x99,0x99,0x9A};
+static unsigned char p0[16] = {0x00,0x00,0x10,0x00,0x20,0x00,0x30,0x00,0x00,0x00,0x10,0x00,0x20,0x00,0x30,0x00}; //Stepping Phase
+static unsigned char p1[16] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}; //Zero Phase
+static unsigned char p2[16] = {0x00,0x00,0x10,0x00,0x20,0x00,0x30,0x00,0x00,0x00,0x10,0x00,0x20,0x00,0x30,0x00}; //Stepping Phase
+static unsigned char p3[16] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}; //Zero Phase
 
 //USB Commands
-static uint8_t cmd[11] = "";
-#define commandsize 11
+static uint8_t cmd[52] = "";
+#define commandsize 52
 
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
@@ -85,18 +83,18 @@ void initDDS(void);
 void setfreqDDS(unsigned char channel,unsigned char freq);
 void getftw(uint32_t freq); //Function to Calculate Frequency Tuning Word
 void resetphase(void); //Function to set the channels at 0 Phase
-void setphase(void); //Function to set the channels at desired Phase
-void incrementphase(void); //Increments phase of sensor demodulation by 90deg
 void modulation_on(void); //Performs all setup to turn on modulation
 void modulation_off(void); //Performs all setup to turn off modulation
+void nextquad(void); //Sets up modulation paramters for next quad
 unsigned char parse_usb(uint8_t *cmd,uint16_t size); //Parses the USB Command and sets frequency/phase values
-void incrementfreq(void); //Frequency stepping function
 void initializesync(void); //Sets up timer to generate camera synchronization signal at 15-30 Hz
 void startsyncpulse(void); //Starts sending out the synchronization pulse
 void stopsyncpulse(void); //Stops sending out the synchronization pulses
 void inituscounter(void); //Initializes a usec counter
 void startcounter(void); //Starts the usec counter with defined period
 void stopcounter(void); //Stops the usec counter
+void config_modvariables(void); //Initializes a Default Setting in the Modulation Variables
+
 /* Private functions ---------------------------------------------------------*/
 /**
   * @brief  Main program
@@ -200,6 +198,7 @@ int main(void)
   TM_USB_VCP_Init();
 	printf("\nUSB Communication Setup Complete - Host Ready!"); 
 	
+	
 	////This Block makes the Host respond to ILLUM_EN
 	/* Enable and set External Interrupt to the highest priority */
   HAL_NVIC_SetPriority(EXTI2_IRQn, 0, 0);
@@ -207,7 +206,7 @@ int main(void)
 	////It should come at the end of all critical initialization
 	
 	//Start Pulsing VD_IN to start capture of frames
-  startsyncpulse();
+  //startsyncpulse();
 	
 	/* Infinite loop */
   while (1)
@@ -221,12 +220,15 @@ int main(void)
 						if(TM_USB_VCP_Getc(&c)==TM_USB_VCP_DATA_OK){
              /* Return data back */
 						   if (c=='M'){
+								 
+								 //Add interrupt guard
+								 __disable_irq();
 								 printf("\n");
-								 //Take 10 Bytes in after receiving M
+								 //Take 51 Bytes in after receiving M
 								 size = 0;
 								 while((TM_USB_VCP_Getc(&cmd[size]) == TM_USB_VCP_DATA_OK)&&(size < commandsize))
 								 {
-									 printf("%c",cmd[size]);
+									 printf("%04x ",cmd[size]);
 									 size++;
 								 }
 								 printf("%d",size);
@@ -237,9 +239,10 @@ int main(void)
 										 BSP_LED_On(LED6);
 									 }
 									 else{
-										TM_USB_VCP_Puts(NACK);										 
-										BSP_LED_Off(LED6);	
-									}									
+										 TM_USB_VCP_Puts(NACK);										 
+										 BSP_LED_Off(LED6);	
+									}		
+									__enable_irq();	
                }
 							 else{
 							   BSP_LED_Off(LED6);
@@ -260,96 +263,64 @@ int main(void)
 unsigned char parse_usb(uint8_t *cmd,uint16_t size){
 	
 	//Check size of cmd packet
-	if (size!=11)
+	if (size!=commandsize-1)
 		return 0;
 	
 	//Check Delimiters
-	if ((cmd[0]!=0xFF)||(cmd[9]!=0xFF))
+	if ((cmd[0]!=0xFF)||(cmd[50]!=0xFF))
 		return 0;
 	
-	
-	//Check if the command is for Doppler mode else process block as before
-	if (cmd[8]==2){
-		switch (cmd[1]){
-				case 0:
-			  fhom[1] = cmd[2];
-				fhom[2] = cmd[3];
-				fhom[3] = cmd[4];
-				fhom[4] = cmd[5];		
-				printf("\nChannel 0");
-				break;
-				
-				case 1:
-			  fhet[1] = cmd[2];
-				fhet[2] = cmd[3];
-				fhet[3] = cmd[4];
-				fhet[4] = cmd[5];
-				printf("\nChannel 1");
-				break;
-			}
-		FreqSteppingAuto = 1;
-		PhaseSteppingAuto = 0;
-    printf("\nDoppler Mode Activated");			
-		}
-  else{
-	
-	//Extract Channel, FTW, PTW and AutoPhase Stepping Command
+	//Process Command
 	switch (cmd[1]){
-				case 0:
-			  fch0[1] = cmd[2];
-				fch0[2] = cmd[3];
-				fch0[3] = cmd[4];
-				fch0[4] = cmd[5];
-				
-				if (cmd[8]==0){
-					pch0[1] = cmd[6];
-					pch0[2] = cmd[7];
-				}
-				printf("\nChannel 0");
-				break;
-				case 1:
-			  fch1[1] = cmd[2];
-				fch1[2] = cmd[3];
-				fch1[3] = cmd[4];
-				fch1[4] = cmd[5];
-				if (cmd[8]==0){
-					pch1[1] = cmd[6];
-					pch1[2] = cmd[7];
-				}
-				printf("\nChannel 1");
-				break;
-				case 2:
-				fch2[1] = cmd[2];
-				fch2[2] = cmd[3];
-				fch2[3] = cmd[4];
-				fch2[4] = cmd[5];
-				if (cmd[8]==0){
-					pch2[1] = cmd[6];
-					pch2[2] = cmd[7];
-				
-				}
-				printf("\nChannel 2");
-				break;	
-				case 3:
-				fch3[1] = cmd[2];
-				fch3[2] = cmd[3];
-				fch3[3] = cmd[4];
-				fch3[4] = cmd[5];
-				if (cmd[8]==0){
-					pch3[1] = cmd[6];
-					pch3[2] = cmd[7];
-				}
-				printf("\nChannel 3");
-				break;				
-			}
-	
-	if (cmd[8]==0){
-		PhaseSteppingAuto = 0;
-		printf("\nAuto-Stepping OFF, Phases can be set!");
-	}else
-		PhaseSteppingAuto = 1;
-	
-}
+		//Channel 0 Settings
+		case 0:
+		for (unsigned char i=0;i<32;i++)
+			f0[i] = cmd[2+i];
+		
+		for (unsigned char i=0;i<16;i++)
+		  p0[i] = cmd[34+i];
+		
+		printf("\nChannel 0 Configured");
+		break;
+		
+		//Channel 1 Settings
+		case 1:
+		for (unsigned char i=0;i<32;i++)
+			f1[i] = cmd[2+i];
+		
+		for (unsigned char i=0;i<16;i++)
+		  p1[i] = cmd[34+i];
+			
+		printf("\nChannel 1 Configured");
+		break;
+		
+		//Channel 2 Settings
+		case 2:
+		for (unsigned char i=0;i<32;i++)
+			f2[i] = cmd[2+i];
+		
+		for (unsigned char i=0;i<16;i++)
+		  p2[i] = cmd[34+i];
+			
+		printf("\nChannel 2 Configured");
+		break;
+		
+		//Channel 3 Settings
+		case 3:
+		for (unsigned char i=0;i<32;i++)
+			f3[i] = cmd[2+i];
+		
+		for (unsigned char i=0;i<16;i++)
+		  p3[i] = cmd[34+i];
+		
+	  printf("\nChannel 3 Configured");		
+		break;
+		
+		
+		
+	}
+	//Reset Frame ID
+	frameid = 0;
 	
 	return 1;
 }
@@ -564,128 +535,74 @@ void resetphase(void){
 		HAL_SPI_TransmitNew(&SpiHandle,phase0,3,timeout);
 	  HAL_SPI_TransmitNew(&SpiHandle,chan1,2,timeout);
 		HAL_SPI_TransmitNew(&SpiHandle,phase0,3,timeout);
-		
-  
-}
-
-
-void setphase(void){
-
-	  HAL_SPI_TransmitNew(&SpiHandle,chan0,2,timeout);
-		HAL_SPI_TransmitNew(&SpiHandle,pch0,3,timeout);
-	  HAL_SPI_TransmitNew(&SpiHandle,chan1,2,timeout);
-		HAL_SPI_TransmitNew(&SpiHandle,pch1,3,timeout);
-		
-  
+	  HAL_SPI_TransmitNew(&SpiHandle,chan2,2,timeout);
+		HAL_SPI_TransmitNew(&SpiHandle,phase0,3,timeout);
+    HAL_SPI_TransmitNew(&SpiHandle,chan3,2,timeout);
+		HAL_SPI_TransmitNew(&SpiHandle,phase0,3,timeout);
 }
 
 
 
+void nextquad(void){
+//Increment local quad counter   
+	if (quadcount==3)
+		 quadcount = 0;
+	 else
+		 quadcount++;
 
-void incrementphase(void){
-
-	if (quadcount ==3)
-		quadcount = 0;
-	else
-		quadcount++;
-	
-	switch (quadcount){
-		case 0:
-			pch0[1] = phase0[1];
-		  pch0[2] = phase0[2];
-		break;
-		case 1:
-			pch0[1] = phase1[1];
-		  pch0[2] = phase1[2];
-		break;
-		case 2:
-			pch0[1] = phase2[1];
-		  pch0[2] = phase2[2];
-		break;
-		case 3:
-			pch0[1] = phase3[1];
-		  pch0[2] = phase3[2];
-		break;
-
+//Get absolute quad count from 0 to 7
+  if ((frameid%2)==0)
+	{ 
+		 if (quadcount==0)
+			 absquad = 0;
+		 else
+			 absquad = quadcount + 4;
+	 }
+  else
+	{
+		 if (quadcount==0)
+			 absquad = 4;
+		 else
+		   absquad = quadcount;
 	}
-	printf("\nquad = %d",quadcount);
+
+//Channel 0 Config	
+	for (unsigned char i = 0;i<4;i++)
+		 fch0[i+1] = f0[(4*absquad)+i];
+	
+	for (unsigned char i = 0;i<2;i++)
+		 pch0[i+1] = p0[(2*absquad)+i];
+	
+//Channel 1 Config	
+	for (unsigned char i = 0;i<4;i++)
+		 fch1[i+1] = f1[(4*absquad)+i];
+	
+	for (unsigned char i = 0;i<2;i++)
+		 pch1[i+1] = p1[(2*absquad)+i];	
+	
+	
+//Channel 2 Config	
+	for (unsigned char i = 0;i<4;i++)
+		 fch2[i+1] = f2[(4*absquad)+i];
+	
+	for (unsigned char i = 0;i<2;i++)
+		 pch2[i+1] = p2[(2*absquad)+i];	
+
+	
+//Channel 3 Config	
+	for (unsigned char i = 0;i<4;i++)
+		 fch3[i+1] = f3[(4*absquad)+i];
+	
+	for (unsigned char i = 0;i<2;i++)
+		 pch3[i+1] = p3[(2*absquad)+i];	
+	
+			
+printf("\nFrame ID = %d",frameid);
+printf("\nQuad Number Absolute = %d",absquad);	
+printf("\nQuad Number Relative = %d",quadcount);	
 }
 
 
-
-void incrementfreq(void){
-	if (quadcount ==3)
-		quadcount = 0;
-	else
-		quadcount++;
-	
-	switch (quadcount){
-		case 0:
-			fch0[1] = fhom[1];
-		  fch0[2] = fhom[2];
-		  fch0[3] = fhom[3];
-		  fch0[4] = fhom[4];
-		 	pch0[1] = phase0[1];
-		  pch0[2] = phase0[2];
-		
-			fch1[1] = fhom[1];
-		  fch1[2] = fhom[2];
-		  fch1[3] = fhom[3];
-		  fch1[4] = fhom[4];
-			pch1[1] = phase0[1];
-		  pch1[2] = phase0[2];
-		break;
-		case 1:
-			fch1[1] = fhet[1];
-		  fch1[2] = fhet[2];
-		  fch1[3] = fhet[3];
-		  fch1[4] = fhet[4];
-		  pch0[1] = phase0[1];
-		  pch0[2] = phase0[2];
-			
-		  fch0[1] = fhom[1];
-		  fch0[2] = fhom[2];
-		  fch0[3] = fhom[3];
-		  fch0[4] = fhom[4];
-		  pch1[1] = phase0[1];
-		  pch1[2] = phase0[2];
-		break;
-		case 2:
-			fch0[1] = fhom[1];
-		  fch0[2] = fhom[2];
-		  fch0[3] = fhom[3];
-		  fch0[4] = fhom[4];
-		 	pch0[1] = phase2[1];
-		  pch0[2] = phase2[2];
-		
-			fch1[1] = fhom[1];
-		  fch1[2] = fhom[2];
-		  fch1[3] = fhom[3];
-		  fch1[4] = fhom[4];
-			pch1[1] = phase0[1];
-		  pch1[2] = phase0[2];
-		break;
-		case 3:
-			fch1[1] = fhet[1];
-		  fch1[2] = fhet[2];
-		  fch1[3] = fhet[3];
-		  fch1[4] = fhet[4];
-		  pch0[1] = phase2[1];
-		  pch0[2] = phase2[2];
-			
-		  fch0[1] = fhom[1];
-		  fch0[2] = fhom[2];
-		  fch0[3] = fhom[3];
-		  fch0[4] = fhom[4];
-		  pch1[1] = phase0[1];
-		  pch1[2] = phase0[2];
-		break;
-
-	}
-	
-	printf("\nquad = %d",quadcount);
-	
-}
 
 void getftw(uint32_t freq){
 	 //TBD
@@ -743,31 +660,21 @@ HAL_StatusTypeDef HAL_SPI_TransmitNew(SPI_HandleTypeDef *hspi, uint8_t *pData, u
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	
-	/*
+
 	if (GPIO_Pin==GPIO_PIN_0){
 	while (BSP_PB_GetState(BUTTON_KEY) != RESET)
 	{};
 		
  	click++;
 		
-	if (click==1){		
-	  modulation_on(); 
-	}
-	
-	if (click==2){
-	  modulation_off();
-		if (PhaseSteppingAuto==1)
-			incrementphase();	 //Stepping Phase for next exposure		
-
-    if (FreqSteppingAuto==1)
-			incrementfreq(); //Stepping Frew for next exposure		
-  	click=0;
-	}
+	startsyncpulse();
+	frameid = 0;
+		
 		
 	printf("\nButton Press Detected");
 	return;
 	}
-	*/
+
 	
 	
 	if (GPIO_Pin==GPIO_PIN_2){
@@ -794,17 +701,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	stopcounter();
 	
 	modulation_off(); 
+	nextquad();
 	
-	if (PhaseSteppingAuto==1)
-			incrementphase();	 //Stepping Phase for next exposure		
-		
-	if (FreqSteppingAuto==1)
-			incrementfreq(); //Stepping Freq for next exposure		 	  	 
   }
 	
 	//Handle TIM8 update for quad offset correction
   if (htim->Instance==TIM8){
 	quadcount = 0;	
+	frameid++;	
 	//printf("\nFrame Triggered");	
 	}
 
