@@ -242,7 +242,7 @@ int main(void)
 										 TM_USB_VCP_Puts(NACK);										 
 										 BSP_LED_Off(LED6);	
 									}		
-									__enable_irq();	
+									
                }
 							 else{
 							   BSP_LED_Off(LED6);
@@ -250,6 +250,8 @@ int main(void)
 								 
 								 		
 							}
+							__enable_irq();
+							 
 					}}
         } else {
             /* USB not OK */
@@ -320,6 +322,7 @@ unsigned char parse_usb(uint8_t *cmd,uint16_t size){
 		
 	}
 	//Reset Frame ID
+	stopsyncpulse();
 	frameid = 0;
 	
 	return 1;
@@ -599,7 +602,7 @@ void nextquad(void){
 			
 printf("\nFrame ID = %d",frameid);
 printf("\nQuad Number Absolute = %d",absquad);	
-printf("\nQuad Number Relative = %d",quadcount);	
+//printf("\nQuad Number Relative = %d",quadcount);	
 }
 
 
